@@ -19,7 +19,8 @@ def parse_ref(ref_file, chrom, ref):
     if ref == '1kg' or ref == 'ukbb':
         ref_dict = {'CHR':[], 'SNP':[], 'BP':[], 'A1':[], 'A2':[], 
                     'FRQ_AFR':[], 'FRQ_AMR':[], 'FRQ_EAS':[], 'FRQ_EUR':[], 'FRQ_SAS':[],
-                    'FLP_AFR':[], 'FLP_AMR':[], 'FLP_EAS':[], 'FLP_EUR':[], 'FLP_SAS':[]}
+                    'FLP_AFR':[], 'FLP_AMR':[], 'FLP_EAS':[], 'FLP_EUR':[], 'FLP_SAS':[],
+                    'CHR/BP':[]}
         with open(ref_file) as ff:
             header = next(ff)
             for line in ff:
@@ -40,6 +41,7 @@ def parse_ref(ref_file, chrom, ref):
                     ref_dict['FLP_EAS'].append(int(ll[12]))
                     ref_dict['FLP_EUR'].append(int(ll[13]))
                     ref_dict['FLP_SAS'].append(int(ll[14]))
+                    ref_dict['CHR/BP'].append(str(chrom)+':'+str(ll[2]))
 
     print('... %d SNPs on chromosome %d read from %s ...' % (len(ref_dict['SNP']), chrom, ref_file))
     return ref_dict
@@ -79,10 +81,15 @@ def parse_sumstats(ref_dict, vld_dict, sst_file, pop, n_subj):
 
 
     idx = [ii for (ii,frq) in enumerate(ref_dict['FRQ_'+pop.upper()]) if frq>0]
-    snp_ref = [ref_dict['SNP'][ii] for ii in idx]
+    if 'rs' not in vld_dict['SNP'][0] or 'rs' not in sst_dict['SNP'][0]:
+        print ('... the target bim or summary stat file does not have rsid...')
+        print('...the three files will be matched based on chr/bp instead. However, must make sure that the SNPs format in all three files are the same...')
+
+        snp_ref = [ref_dict['CHR/BP'][ii] for ii in idx]
+    else:
+        snp_ref = [ref_dict['SNP'][ii] for ii in idx]
     a1_ref = [ref_dict['A1'][ii] for ii in idx]
     a2_ref = [ref_dict['A2'][ii] for ii in idx]
-
 
     mapping = {'A': 'T', 'T': 'A', 'C': 'G', 'G': 'C'}
 
@@ -141,18 +148,26 @@ def parse_sumstats(ref_dict, vld_dict, sst_file, pop, n_subj):
 
                 sst_eff.update({snp: beta_std})
 
+    #check that the same SNP id is used
+    chrbp_to_rs_dict={chrbp:snp for chrbp,snp in zip(ref_dict['CHR/BP'],ref_dict['SNP'])}
+    rs_to_chrbp_dict={snp:chrbp for snp,chrbp in zip(ref_dict['SNP'],ref_dict['CHR/BP'])}
+    if 'rs' not in sst_dict['SNP'][0]:
+        print('...matching the summary stat effect rsid to chr/bp in the reference file...')
+        sst_eff = {chrbp_to_rs_dict[k]:v for k,v in sst_eff.items()}
 
-    sst_dict = {'SNP':[], 'FRQ':[], 'BETA':[], 'FLP':[]}
+    sst_dict = {'CHR':[], 'SNP':[], 'BP':[], 'FRQ':[], 'BETA':[], 'FLP':[]}
+
     for (ii,snp) in enumerate(ref_dict['SNP']):
         if snp in sst_eff:
             sst_dict['SNP'].append(snp)
             sst_dict['BETA'].append(sst_eff[snp])
-
+            sst_dict['CHR'].append(ref_dict['CHR'][ii])
+            sst_dict['BP'].append(ref_dict['BP'][ii])
             a1 = ref_dict['A1'][ii]; a2 = ref_dict['A2'][ii]
-            if (snp, a1, a2) in comm_snp or (snp, mapping[a1], mapping[a2]) in comm_snp:
+            if (snp, a1, a2) in comm_snp or (snp, mapping[a1], mapping[a2]) in comm_snp or (rs_to_chrbp_dict[snp], a1,a2) in comm_snp or (rs_to_chrbp_dict[snp],mapping[a1],mapping[a2]):
                 sst_dict['FRQ'].append(ref_dict['FRQ_'+pop.upper()][ii])
                 sst_dict['FLP'].append(ref_dict['FLP_'+pop.upper()][ii])
-            elif (snp, a2, a1) in comm_snp or (snp, mapping[a2], mapping[a1]) in comm_snp:
+            elif (snp, a2, a1) in comm_snp or (snp, mapping[a2], mapping[a1]) in comm_snp or (rs_to_chrbp_dict[snp],a2,a1) in comm_snp or (rs_to_chrbp_dict[snp], mapping[a2],mapping[a1]) in comm_snp:
                 sst_dict['FRQ'].append(1-ref_dict['FRQ_'+pop.upper()][ii])
                 sst_dict['FLP'].append(-1*ref_dict['FLP_'+pop.upper()][ii])
 
@@ -200,20 +215,36 @@ def align_ldblk(ref_dict, vld_dict, sst_dict, n_pop, chrom):
     print('... align reference LD on chromosome %d across populations ...' % chrom)
 
     snp_dict = {'CHR':[], 'SNP':[], 'BP':[], 'A1':[], 'A2':[]}
+    
+    vld_dict_rsid=True
+    if all(True if 'rs' not in i else False for i in vld_dict['SNP']):
+        print('...rsid not found in validation set dictionary...')
+        print('...matching by CHR/BP instead...')
+        vld_dict_rsid=False
+
     for (ii,snp) in enumerate(ref_dict['SNP']):
         for pp in range(n_pop):
             if snp in sst_dict[pp]['SNP']:
                 snp_dict['SNP'].append(snp)
-                snp_dict['CHR'].append(ref_dict['CHR'][ii])
-                snp_dict['BP'].append(ref_dict['BP'][ii])
-
-                idx = vld_dict['SNP'].index(snp)
+                chrom=ref_dict['CHR'][ii]
+                bp=ref_dict['BP'][ii]
+                snp_dict['CHR'].append(chrom)
+                snp_dict['BP'].append(bp)
+                if vld_dict_rsid:
+                    idx = vld_dict['SNP'].index(snp)
+                else:
+                    idx= vld_dict['SNP'].index('%s:%s'%(chrom,bp))
                 snp_dict['A1'].append(vld_dict['A1'][idx])
                 snp_dict['A2'].append(vld_dict['A2'][idx])
                 break
+            ###break is used here because it needs only to record the snp if is found in only one population###
 
     n_snp = len(snp_dict['SNP'])
     print('... %d valid SNPs across populations ...' % n_snp)
+    
+    ##sanity check
+    #for k in sst_dict[0].keys():
+    #    print('%s:%s'%(k,sst_dict[0][k][:5]))
 
     beta_dict = {}
     frq_dict = {}
