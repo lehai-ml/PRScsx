@@ -102,3 +102,7 @@ venv.bak/
 
 # mypy
 .mypy_cache/
+*.swp
+*.hdf5
+test_data/
+ref_panels/
