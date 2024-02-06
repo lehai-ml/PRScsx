@@ -123,6 +123,8 @@ for pop in ${populations[@]}; do
 
 done
 
+[[ $(find $output_dir/ -maxdepth 1 -type f -name "${output_file}_META_pst_eff_a1*") ]] && echo concatenate META posterior effect sizes && cat $output_dir/${output_file}_META_pst_eff_a1*.txt > $output_dir/${output_file}_META_all.txt && awk '{print $1"\t"$1":"$3"\t"$3"\t"$4"\t"$5"\t"$6}' $output_dir/${output_file}_META_all.txt > $output_dir/${output_file}_META_preprocessed.txt
+
 #######Calculate the scores######
 #####using plink score ####
 
@@ -133,3 +135,5 @@ echo "Calculate PRS score using PLINK for ${pop} population"
 plink --bfile $target_file --score $output_dir/${output_file}_${pop}_preprocessed.txt 2 4 6 sum --out $output_dir/${output_file}_${pop}.PRScsx
 
 done
+
+[[ $(find $output_dir/ -maxdepth 1 -type f -name "${output_file}_META_pst_eff_a1*") ]] && echo Calculate PRS score using PLINK using META posterior effects  && plink --bfile $target_file --score $output_dir/${output_file}_META_preprocessed.txt 2 4 6 sum --out $output_dir/${output_file}_META.PRScsx
